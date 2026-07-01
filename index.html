@@ -1,0 +1,1067 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🫁 Respiratory Health Monitor — Prototype</title>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=JetBrains+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap');
+
+:root {
+  --void:    #0d1b2a;
+  --panel:   #162435;
+  --mid:     #1f3347;
+  --border:  #263d52;
+  --cyan:    #4ab8c8;
+  --cyan-dim:#1b4a54;
+  --rose:    #c2606a;
+  --rose-dim:#3d1e22;
+  --gold:    #d4a842;
+  --mist:    #e8f4f8;
+  --steel:   #8daabb;
+  --dim:     #4a6880;
+  --display: 'DM Serif Display', Georgia, serif;
+  --mono:    'JetBrains Mono', monospace;
+  --body:    'Inter', system-ui, sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: var(--void);
+  color: var(--mist);
+  font-family: var(--body);
+  font-weight: 300;
+  overflow-x: hidden;
+}
+
+/* ══ PROTOTYPE BANNER ══ */
+#protoBanner {
+  background: var(--gold);
+  color: var(--void);
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: .06em;
+  padding: 8px 16px;
+  font-weight: 500;
+}
+
+/* ══ LAYOUT ══ */
+#app {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  grid-template-rows: 52px 1fr;
+  height: calc(100vh - 37px);
+}
+@media (max-width: 860px) {
+  #app { grid-template-columns: 1fr; grid-template-rows: 52px 1fr auto; height: auto; }
+  html, body { overflow-y: auto; }
+}
+
+/* ══ HEADER ══ */
+#header {
+  grid-column: 1 / -1;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  gap: 18px;
+}
+.h-title {
+  font-family: var(--display);
+  font-size: 20px;
+  color: var(--mist);
+  letter-spacing: .01em;
+}
+.h-sep { width: 1px; height: 18px; background: var(--border); }
+.h-sub {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+#livePill {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--dim);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  transition: all .3s;
+}
+#livePill .ldot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--dim);
+  transition: background .3s, box-shadow .3s;
+}
+#livePill.active { border-color: var(--cyan); color: var(--cyan); }
+#livePill.active .ldot {
+  background: var(--cyan);
+  box-shadow: 0 0 8px var(--cyan);
+  animation: blink 2s ease infinite;
+}
+#livePill.alert { border-color: var(--rose); color: var(--rose); animation: pillPulse 1s infinite; }
+#livePill.alert .ldot { background: var(--rose); box-shadow: 0 0 10px var(--rose); }
+@keyframes blink   { 50% { opacity: .3; } }
+@keyframes pillPulse { 50% { box-shadow: 0 0 0 5px rgba(194,96,106,.25); } }
+
+/* ══ LEFT: camera + waveform ══ */
+#leftCol {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 1px solid var(--border);
+}
+
+/* Camera stage */
+#camStage {
+  position: relative;
+  flex: 1;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+#videoEl {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+  transform: scaleX(-1);
+}
+#poseCanvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  transform: scaleX(-1);
+}
+/* Breath ring canvas — signature element */
+#ringCanvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  z-index: 4;
+}
+#startOverlay {
+  position: absolute; inset: 0; z-index: 10;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  background: rgba(13,27,42,.85);
+  gap: 14px;
+  backdrop-filter: blur(4px);
+}
+.start-icon { font-size: 44px; opacity: .7; }
+.start-text {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--steel);
+  letter-spacing: .06em;
+  text-align: center;
+  line-height: 1.6;
+}
+.start-btn {
+  margin-top: 6px;
+  background: var(--cyan);
+  color: var(--void);
+  border: none;
+  border-radius: 8px;
+  padding: 11px 22px;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: .06em;
+  cursor: pointer;
+  transition: filter .15s;
+}
+.start-btn:hover { filter: brightness(1.1); }
+
+/* Alert overlay */
+#alertOverlay {
+  position: absolute; inset: 0; z-index: 5;
+  pointer-events: none;
+  background: rgba(194,96,106,.18);
+  opacity: 0;
+  transition: opacity .2s;
+}
+#alertOverlay.show { opacity: 1; }
+
+/* Waveform strip */
+#waveStrip {
+  height: 100px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  position: relative;
+  flex-shrink: 0;
+}
+#waveCanvas { width: 100%; height: 100%; display: block; }
+#waveLabel {
+  position: absolute;
+  top: 8px; left: 12px;
+  font-family: var(--mono); font-size: 9px;
+  color: var(--dim); letter-spacing: .12em;
+  text-transform: uppercase;
+}
+#waveStatus {
+  position: absolute;
+  top: 8px; right: 12px;
+  font-family: var(--mono); font-size: 10px;
+  color: var(--steel); letter-spacing: .06em;
+}
+
+/* ══ RIGHT: metrics + log ══ */
+#rightCol {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── BPM hero ── */
+#bpmHero {
+  padding: 24px 22px 18px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.bpm-eyebrow {
+  font-family: var(--mono); font-size: 9px;
+  color: var(--dim); letter-spacing: .16em;
+  text-transform: uppercase; margin-bottom: 4px;
+}
+#bpmBig {
+  font-family: var(--display);
+  font-size: 80px;
+  line-height: 1;
+  color: var(--mist);
+  letter-spacing: -.02em;
+  transition: color .5s;
+}
+#bpmUnit {
+  font-family: var(--mono); font-size: 13px;
+  color: var(--dim); letter-spacing: .06em;
+  margin-top: 2px;
+}
+#patternBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 12px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  font-family: var(--mono); font-size: 11px;
+  letter-spacing: .06em;
+  color: var(--steel);
+  transition: all .4s;
+}
+#patternBadge.normal { border-color: rgba(74,184,200,.4); color: var(--cyan); background: var(--cyan-dim); }
+#patternBadge.caution { border-color: rgba(212,168,66,.4); color: var(--gold); background: rgba(38,30,10,.6); }
+#patternBadge.abnormal { border-color: rgba(194,96,106,.5); color: var(--rose); background: var(--rose-dim); animation: pillPulse 1s infinite; }
+.pbi { font-size: 14px; }
+
+/* ── Stats row ── */
+#statsRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.stat-cell {
+  padding: 14px 18px;
+  border-right: 1px solid var(--border);
+}
+.stat-cell:nth-child(even) { border-right: none; }
+.sc-key {
+  font-family: var(--mono); font-size: 9px;
+  color: var(--dim); letter-spacing: .14em;
+  text-transform: uppercase; margin-bottom: 5px;
+}
+.sc-val {
+  font-family: var(--mono); font-size: 20px;
+  font-weight: 500;
+  color: var(--mist);
+  letter-spacing: -.01em;
+  transition: color .3s;
+}
+
+/* ── Pattern detail ── */
+#patternDetail {
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.pd-eyebrow {
+  font-family: var(--mono); font-size: 9px;
+  color: var(--dim); letter-spacing: .14em;
+  text-transform: uppercase; margin-bottom: 8px;
+}
+#patternDesc {
+  font-family: var(--body); font-size: 12px;
+  color: var(--steel); line-height: 1.6;
+  min-height: 36px;
+}
+/* Rhythm regularity bars */
+#rhythmBars {
+  display: flex;
+  gap: 3px;
+  margin-top: 10px;
+  align-items: flex-end;
+  height: 28px;
+}
+.rhythm-bar {
+  flex: 1;
+  background: var(--border);
+  border-radius: 2px;
+  transition: height .3s ease, background .3s;
+}
+
+/* ── Session log ── */
+#sessionLog {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 0;
+}
+#sessionLog::-webkit-scrollbar { width: 3px; }
+#sessionLog::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.log-eyebrow {
+  font-family: var(--mono); font-size: 9px;
+  color: var(--dim); letter-spacing: .14em;
+  text-transform: uppercase; padding: 0 22px 8px;
+}
+.log-empty {
+  font-family: var(--body); font-size: 12px;
+  color: var(--dim); padding: 20px 22px;
+  line-height: 1.6;
+}
+.log-entry {
+  padding: 9px 22px;
+  border-left: 3px solid transparent;
+  margin-bottom: 2px;
+  transition: background .15s;
+}
+.log-entry:hover { background: rgba(255,255,255,.02); }
+.log-entry.normal  { border-left-color: var(--cyan); }
+.log-entry.caution { border-left-color: var(--gold); }
+.log-entry.abnormal{ border-left-color: var(--rose); }
+.le-top {
+  display: flex; justify-content: space-between;
+  font-family: var(--mono); font-size: 10px;
+  color: var(--steel); margin-bottom: 2px;
+}
+.le-top .le-bpm { color: var(--mist); font-weight: 500; }
+.le-desc {
+  font-family: var(--body); font-size: 11px;
+  color: var(--dim); line-height: 1.4;
+}
+
+/* ── Controls ── */
+#controls {
+  border-top: 1px solid var(--border);
+  padding: 14px 22px;
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.ctrl-btn {
+  flex: 1; padding: 10px 0;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--steel);
+  font-family: var(--mono); font-size: 11px;
+  letter-spacing: .06em; text-transform: uppercase;
+  cursor: pointer;
+  transition: all .15s;
+}
+.ctrl-btn:hover { background: var(--mid); color: var(--mist); }
+.ctrl-btn.primary {
+  background: var(--cyan-dim);
+  border-color: rgba(74,184,200,.4);
+  color: var(--cyan);
+}
+.ctrl-btn.primary:hover { background: rgba(74,184,200,.2); }
+.ctrl-btn.warn {
+  border-color: rgba(194,96,106,.4);
+  color: var(--rose);
+}
+.ctrl-btn.warn:hover { background: var(--rose-dim); }
+
+/* ══ DISCLAIMER FOOTER ══ */
+#footer {
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  grid-column: 1 / -1;
+  padding: 12px 24px;
+  font-family: var(--mono); font-size: 10px;
+  color: var(--dim); line-height: 1.6;
+  letter-spacing: .03em;
+}
+
+</style>
+</head>
+<body>
+
+<div id="protoBanner">⚠ PROTOTYPE — NOT A MEDICAL DEVICE. Breathing rate is estimated from shoulder motion and will be inaccurate. Do not use for clinical decisions.</div>
+
+<div id="app">
+  <!-- Header -->
+  <div id="header">
+    <div class="h-title">Respiratory Monitor</div>
+    <div class="h-sep"></div>
+    <div class="h-sub">optical breath rate · MediaPipe Pose · on-device</div>
+    <div id="livePill"><span class="ldot"></span><span id="liveLabel">standby</span></div>
+  </div>
+
+  <!-- Left col: camera + waveform -->
+  <div id="leftCol">
+    <div id="camStage">
+      <video id="videoEl" playsinline muted autoplay></video>
+      <canvas id="poseCanvas"></canvas>
+      <canvas id="ringCanvas"></canvas>
+      <div id="alertOverlay"></div>
+      <div id="startOverlay">
+        <div class="start-icon">🫁</div>
+        <div class="start-text">Sit facing the camera with your<br>chest and shoulders visible.</div>
+        <button class="start-btn" id="startBtn">Start monitoring</button>
+      </div>
+    </div>
+    <div id="waveStrip">
+      <div id="waveLabel">breath waveform (shoulder rise/fall)</div>
+      <div id="waveStatus" id="waveStatus">—</div>
+      <canvas id="waveCanvas"></canvas>
+    </div>
+  </div>
+
+  <!-- Right col: metrics + log -->
+  <div id="rightCol">
+    <div id="bpmHero">
+      <div class="bpm-eyebrow">breaths per minute</div>
+      <div id="bpmBig">—</div>
+      <div id="bpmUnit">bpm · est. from shoulder motion</div>
+      <div id="patternBadge"><span class="pbi">🫁</span><span id="patternText">awaiting data</span></div>
+    </div>
+
+    <div id="statsRow">
+      <div class="stat-cell">
+        <div class="sc-key">Regularity</div>
+        <div class="sc-val" id="statReg">—</div>
+      </div>
+      <div class="stat-cell">
+        <div class="sc-key">Avg cycle (s)</div>
+        <div class="sc-val" id="statCycle">—</div>
+      </div>
+      <div class="stat-cell">
+        <div class="sc-key">Session (min)</div>
+        <div class="sc-val" id="statTime">0:00</div>
+      </div>
+      <div class="stat-cell">
+        <div class="sc-key">Anomalies</div>
+        <div class="sc-val" id="statAnom" style="color:var(--rose)">0</div>
+      </div>
+    </div>
+
+    <div id="patternDetail">
+      <div class="pd-eyebrow">Pattern analysis</div>
+      <div id="patternDesc">Start the camera to begin breath analysis.</div>
+      <div id="rhythmBars">
+        <!-- 16 bars injected by JS -->
+      </div>
+    </div>
+
+    <div id="sessionLog">
+      <div class="log-eyebrow">Session events</div>
+      <div class="log-empty" id="logEmpty">No events logged yet. Normal breathing produces no log entries.</div>
+    </div>
+
+    <div id="controls">
+      <button class="ctrl-btn primary" id="pauseBtn" onclick="togglePause()" disabled>Pause</button>
+      <button class="ctrl-btn warn" id="clearBtn" onclick="clearLog()">Clear log</button>
+      <button class="ctrl-btn" id="exportBtn" onclick="exportSession()">Export CSV</button>
+    </div>
+  </div>
+
+  <div id="footer">
+    Accuracy note: rate is derived from sub-pixel vertical motion of shoulder landmarks tracked by MediaPipe Pose. Accuracy degrades with motion, poor lighting, loose clothing, camera angle, and breathing from the abdomen rather than the chest. This is a visual concept demo — not a spirometer or clinical pulse oximeter.
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+//  RESPIRATORY HEALTH MONITOR — on-device prototype
+//  Optical breathing rate from shoulder landmark vertical motion
+// ══════════════════════════════════════════════════════════════
+
+const video       = document.getElementById('videoEl');
+const poseCanvas  = document.getElementById('poseCanvas');
+const poseCtx     = poseCanvas.getContext('2d');
+const ringCanvas  = document.getElementById('ringCanvas');
+const ringCtx     = ringCanvas.getContext('2d');
+const waveCanvas  = document.getElementById('waveCanvas');
+const waveCtx     = waveCanvas.getContext('2d');
+
+// ── Signal buffers ──
+const HISTORY_MS   = 30000;   // 30s window for waveform display
+const PEAK_MIN_GAP = 1200;    // min ms between breath peaks
+const BREATH_RATE_WINDOW = 15; // use last N breath cycles for BPM
+
+let signalBuf  = [];  // { t, y } — raw shoulder-midpoint Y
+let peakTimes  = [];  // timestamps of detected peaks (inhale peaks)
+let sessionLog = [];
+let anomalyCount = 0;
+let sessionStart = null;
+let paused = false;
+let running = false;
+let animationId;
+let poseInstance;
+let cameraObj;
+let sessionTimerInterval;
+
+// Smoothed display values
+let smoothBPM    = 0;
+let smoothReg    = 0;
+let ringPhase    = 0;   // 0-1, breathing phase for the ring
+let ringAmplitude= 0;   // normalized amplitude
+
+// Pattern classification
+const PATTERNS = {
+  normal:   { label: 'Normal', emoji: '✓', cls: 'normal',   min: 12, max: 20 },
+  slow:     { label: 'Bradypnea', emoji: '↓', cls: 'caution', min: 0,  max: 12 },
+  fast:     { label: 'Tachypnea', emoji: '↑', cls: 'caution', min: 20, max: 30 },
+  vfast:    { label: 'Very rapid', emoji: '⚠', cls: 'abnormal',min: 30, max: 999 },
+  irregular:{ label: 'Irregular rhythm', emoji: '~', cls: 'abnormal', min: -1, max: -1 },
+  nodata:   { label: 'No person detected', emoji: '—', cls: '',  min: -1, max: -1 },
+};
+
+const PATTERN_DESCS = {
+  normal:    'Breathing rhythm within the normal adult range (12–20 breaths per minute). Cycle regularity looks stable.',
+  slow:      'Rate below 12 bpm (bradypnea). Can be normal during deep relaxation or sleep, but warrants attention if unexpected.',
+  fast:      'Rate above 20 bpm (tachypnea). Often caused by exercise, stress, or anxiety. If at rest, consider seeking advice.',
+  vfast:     'Rate above 30 bpm. Rapid breathing at rest may indicate distress. This is a concept demo — please consult a clinician.',
+  irregular: 'Cycle-to-cycle timing varies significantly. Could reflect movement artefact, or genuinely irregular rhythm.',
+  nodata:    'Pose landmarks not detected. Ensure your upper body is clearly visible and well-lit.',
+};
+
+// ── Rhythm bar initialisation ──
+const rhythmBarsEl = document.getElementById('rhythmBars');
+for (let i = 0; i < 16; i++) {
+  const b = document.createElement('div');
+  b.className = 'rhythm-bar';
+  b.style.height = '6px';
+  rhythmBarsEl.appendChild(b);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  CAMERA + MEDIAPIPE SETUP
+// ══════════════════════════════════════════════════════════════
+
+document.getElementById('startBtn').addEventListener('click', startMonitor);
+
+async function startMonitor() {
+  document.getElementById('startOverlay').style.display = 'none';
+  sessionStart = Date.now();
+
+  // Session timer
+  sessionTimerInterval = setInterval(() => {
+    const s = Math.floor((Date.now() - sessionStart) / 1000);
+    const m = Math.floor(s / 60);
+    const ss = String(s % 60).padStart(2, '0');
+    document.getElementById('statTime').textContent = `${m}:${ss}`;
+  }, 1000);
+
+  // MediaPipe Pose
+  poseInstance = new Pose({
+    locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`
+  });
+  poseInstance.setOptions({
+    modelComplexity: 1,
+    smoothLandmarks: true,
+    enableSegmentation: false,
+    minDetectionConfidence: 0.55,
+    minTrackingConfidence: 0.5,
+  });
+  poseInstance.onResults(onPoseResults);
+
+  // Camera
+  cameraObj = new Camera(video, {
+    onFrame: async () => {
+      if (!paused) await poseInstance.send({ image: video });
+    },
+    width: 640,
+    height: 480,
+  });
+  await cameraObj.start();
+
+  running = true;
+  document.getElementById('pauseBtn').disabled = false;
+  setLivePill('active', 'monitoring');
+  syncCanvases();
+  requestAnimationFrame(renderLoop);
+}
+
+function syncCanvases() {
+  const stage = document.getElementById('camStage');
+  const w = stage.offsetWidth, h = stage.offsetHeight;
+  poseCanvas.width = ringCanvas.width = w;
+  poseCanvas.height = ringCanvas.height = h;
+  waveCanvas.width = document.getElementById('waveStrip').offsetWidth;
+  waveCanvas.height = document.getElementById('waveStrip').offsetHeight;
+}
+window.addEventListener('resize', syncCanvases);
+
+// ══════════════════════════════════════════════════════════════
+//  POSE RESULTS → SIGNAL EXTRACTION
+// ══════════════════════════════════════════════════════════════
+
+const LM_LEFT_SHOULDER  = 11;
+const LM_RIGHT_SHOULDER = 12;
+
+let frameCount = 0;
+
+function onPoseResults(results) {
+  // Draw skeleton
+  poseCtx.save();
+  poseCtx.clearRect(0, 0, poseCanvas.width, poseCanvas.height);
+
+  if (results.poseLandmarks) {
+    // subtle skeleton — just the upper body matters
+    const lm = results.poseLandmarks;
+    drawPoseSkeleton(lm, poseCtx, poseCanvas.width, poseCanvas.height);
+
+    const ls = lm[LM_LEFT_SHOULDER];
+    const rs = lm[LM_RIGHT_SHOULDER];
+    if (ls && rs) {
+      const shoulderMidY = (ls.y + rs.y) / 2;
+      const t = Date.now();
+      signalBuf.push({ t, y: shoulderMidY });
+
+      // Trim to history window
+      const cutoff = t - HISTORY_MS;
+      signalBuf = signalBuf.filter(p => p.t >= cutoff);
+
+      // Process signal
+      if (signalBuf.length > 20) processSignal(t);
+    }
+  } else {
+    // no person
+    updatePatternUI('nodata', null);
+  }
+  poseCtx.restore();
+  frameCount++;
+}
+
+function drawPoseSkeleton(lm, ctx, w, h) {
+  // Upper body connections only (relevant landmarks)
+  const UB_CONNECTIONS = [
+    [11,12],[11,13],[12,14],[13,15],[14,16],
+    [11,23],[12,24],[23,24]
+  ];
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(74,184,200,.55)';
+  ctx.fillStyle = 'rgba(74,184,200,.85)';
+  UB_CONNECTIONS.forEach(([a, b]) => {
+    const pa = lm[a], pb = lm[b];
+    if (!pa || !pb) return;
+    ctx.beginPath();
+    // mirrored x because video is scaleX(-1)
+    ctx.moveTo((1 - pa.x) * w, pa.y * h);
+    ctx.lineTo((1 - pb.x) * w, pb.y * h);
+    ctx.stroke();
+  });
+  // Shoulder landmark dots (highlighted)
+  [11, 12].forEach(i => {
+    const p = lm[i];
+    if (!p) return;
+    ctx.beginPath();
+    ctx.arc((1 - p.x) * w, p.y * h, 5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+// ══════════════════════════════════════════════════════════════
+//  SIGNAL PROCESSING — peak detection → BPM → classification
+// ══════════════════════════════════════════════════════════════
+
+let lastPeakT = 0;
+let lastSmoothY = null;
+let prevDy = 0;
+
+function processSignal(now) {
+  // Simple smooth: exponential moving average
+  const rawY = signalBuf[signalBuf.length - 1].y;
+  lastSmoothY = lastSmoothY === null ? rawY : lerp(lastSmoothY, rawY, 0.15);
+
+  // Derivative for peak detection
+  const prevSmooth = signalBuf.length > 5
+    ? signalBuf[signalBuf.length - 5].y
+    : rawY;
+  const dy = lastSmoothY - prevSmooth; // negative = shoulder rising (inhale peak in shoulder Y)
+
+  // Peak = local minima in shoulder Y (shoulders up = inhale = low Y value)
+  const crossedDown = prevDy < -0.002 && dy >= -0.002;
+  if (crossedDown && now - lastPeakT > PEAK_MIN_GAP) {
+    peakTimes.push(now);
+    lastPeakT = now;
+    // Keep only recent peaks
+    const cutoff = now - 60000;
+    peakTimes = peakTimes.filter(t => t >= cutoff);
+  }
+  prevDy = dy;
+
+  // BPM from inter-peak intervals
+  const recentPeaks = peakTimes.slice(-BREATH_RATE_WINDOW);
+  if (recentPeaks.length >= 2) {
+    const intervals = [];
+    for (let i = 1; i < recentPeaks.length; i++) {
+      intervals.push(recentPeaks[i] - recentPeaks[i - 1]);
+    }
+    const avgInterval = intervals.reduce((a, b) => a + b) / intervals.length;
+    const rawBPM = 60000 / avgInterval;
+
+    // Regularity: coefficient of variation
+    const mean = avgInterval;
+    const variance = intervals.reduce((a, b) => a + (b - mean) ** 2, 0) / intervals.length;
+    const cv = Math.sqrt(variance) / mean; // 0 = perfectly regular
+    const regularity = Math.max(0, Math.min(100, Math.round((1 - cv) * 100)));
+
+    smoothBPM = lerp(smoothBPM || rawBPM, rawBPM, 0.2);
+    smoothReg = lerp(smoothReg || regularity, regularity, 0.15);
+
+    // Ring breath phase — estimate from position in current cycle
+    const timeSinceLast = now - recentPeaks[recentPeaks.length - 1];
+    ringPhase = Math.min(1, timeSinceLast / avgInterval);
+    ringAmplitude = Math.min(1, (rawBPM > 0 ? 1 : 0) * 0.7 + 0.3);
+
+    // Classify
+    const isIrregular = cv > 0.25;
+    let pattern;
+    if (isIrregular) pattern = 'irregular';
+    else if (rawBPM < 12) pattern = 'slow';
+    else if (rawBPM > 30) pattern = 'vfast';
+    else if (rawBPM > 20) pattern = 'fast';
+    else pattern = 'normal';
+
+    updateMetricsUI(rawBPM, regularity, avgInterval / 1000);
+    updatePatternUI(pattern, intervals);
+    checkAnomaly(pattern, rawBPM, now);
+
+    // ring amplitude from signal peak-to-peak
+    const recentSignal = signalBuf.slice(-40);
+    const ys = recentSignal.map(p => p.y);
+    const amp = Math.max(...ys) - Math.min(...ys);
+    ringAmplitude = Math.min(1, amp * 15);
+  } else {
+    updatePatternUI('nodata', null);
+  }
+
+  // Update rhythm bars
+  updateRhythmBars();
+}
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+// ══════════════════════════════════════════════════════════════
+//  UI UPDATES
+// ══════════════════════════════════════════════════════════════
+
+function updateMetricsUI(bpm, regularity, cycleS) {
+  const bpmEl = document.getElementById('bpmBig');
+  const n = Math.round(bpm);
+  bpmEl.textContent = n;
+  bpmEl.style.color = bpm < 12 || bpm > 20
+    ? (bpm > 30 ? 'var(--rose)' : 'var(--gold)')
+    : 'var(--mist)';
+
+  document.getElementById('statReg').textContent =
+    regularity >= 80 ? 'Regular' : regularity >= 60 ? 'Fair' : 'Irregular';
+  document.getElementById('statReg').style.color =
+    regularity >= 80 ? 'var(--cyan)' : regularity >= 60 ? 'var(--gold)' : 'var(--rose)';
+
+  document.getElementById('statCycle').textContent = cycleS.toFixed(1) + 's';
+}
+
+function updatePatternUI(key, intervals) {
+  const p = PATTERNS[key] || PATTERNS.nodata;
+  const badge = document.getElementById('patternBadge');
+  badge.className = 'patternBadge ' + (p.cls ? p.cls : '');
+  document.getElementById('patternText').textContent = p.label;
+  badge.querySelector('.pbi').textContent = p.emoji;
+
+  const descEl = document.getElementById('patternDesc');
+  descEl.textContent = PATTERN_DESCS[key] || '';
+
+  // Alert overlay
+  const alertEl = document.getElementById('alertOverlay');
+  alertEl.classList.toggle('show', key === 'vfast' || key === 'irregular');
+
+  // Live pill
+  if (key === 'vfast' || key === 'irregular') {
+    setLivePill('alert', 'alert');
+  } else if (running) {
+    setLivePill('active', 'monitoring');
+  }
+}
+
+function setLivePill(state, label) {
+  const pill = document.getElementById('livePill');
+  pill.className = '';
+  if (state) pill.classList.add(state);
+  document.getElementById('liveLabel').textContent = label;
+}
+
+let lastAnomalyTime = 0;
+function checkAnomaly(pattern, bpm, t) {
+  if ((pattern === 'vfast' || pattern === 'irregular') && t - lastAnomalyTime > 10000) {
+    lastAnomalyTime = t;
+    anomalyCount++;
+    document.getElementById('statAnom').textContent = anomalyCount;
+    addLogEntry(pattern, bpm, t);
+  }
+}
+
+function addLogEntry(pattern, bpm, t) {
+  const p = PATTERNS[pattern];
+  const entry = { pattern, bpm: Math.round(bpm), t, label: p.label };
+  sessionLog.push(entry);
+
+  const emptyEl = document.getElementById('logEmpty');
+  if (emptyEl) emptyEl.remove();
+
+  const container = document.getElementById('sessionLog');
+  const div = document.createElement('div');
+  div.className = `log-entry ${p.cls}`;
+  div.innerHTML = `
+    <div class="le-top">
+      <span class="le-bpm">${entry.bpm} bpm</span>
+      <span>${new Date(t).toLocaleTimeString()}</span>
+    </div>
+    <div class="le-desc">${p.label} — ${PATTERN_DESCS[pattern].split('.')[0]}.</div>`;
+  // Insert after eyebrow
+  const eyebrow = container.querySelector('.log-eyebrow');
+  eyebrow.after(div);
+}
+
+function updateRhythmBars() {
+  const bars = rhythmBarsEl.querySelectorAll('.rhythm-bar');
+  // Last N inter-peak intervals, normalised
+  const recentIntervals = [];
+  for (let i = Math.max(0, peakTimes.length - 17); i < peakTimes.length - 1; i++) {
+    recentIntervals.push(peakTimes[i + 1] - peakTimes[i]);
+  }
+  const maxI = recentIntervals.length ? Math.max(...recentIntervals) : 1;
+  bars.forEach((bar, idx) => {
+    const iv = recentIntervals[idx];
+    if (iv === undefined) {
+      bar.style.height = '6px';
+      bar.style.background = 'var(--border)';
+    } else {
+      const h = Math.round(4 + (iv / maxI) * 22);
+      bar.style.height = h + 'px';
+      // Color by deviation from median
+      const median = recentIntervals.slice().sort((a,b)=>a-b)[Math.floor(recentIntervals.length/2)];
+      const dev = Math.abs(iv - median) / median;
+      bar.style.background = dev > 0.25 ? 'var(--rose)' : dev > 0.12 ? 'var(--gold)' : 'var(--cyan)';
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════════════════
+//  RENDER LOOP — waveform + breath ring
+// ══════════════════════════════════════════════════════════════
+
+function renderLoop() {
+  if (!running) return;
+  drawWaveform();
+  drawBreathRing();
+  animationId = requestAnimationFrame(renderLoop);
+}
+
+// ── Waveform ──
+function drawWaveform() {
+  const w = waveCanvas.width, h = waveCanvas.height;
+  waveCtx.clearRect(0, 0, w, h);
+  waveCtx.fillStyle = 'var(--panel)';
+  waveCtx.fillRect(0, 0, w, h);
+
+  if (signalBuf.length < 2) return;
+
+  const now = Date.now();
+  const tMin = now - HISTORY_MS;
+  const tRange = HISTORY_MS;
+
+  // Get Y range for normalization
+  const ys = signalBuf.map(p => p.y);
+  const yMin = Math.min(...ys), yMax = Math.max(...ys);
+  const yRange = yMax - yMin || 0.01;
+  const pad = 14;
+
+  // Waveform path
+  waveCtx.beginPath();
+  signalBuf.forEach((p, i) => {
+    const x = ((p.t - tMin) / tRange) * w;
+    // Invert Y: low Y (shoulders up/inhale) → high on canvas
+    const y = pad + (1 - (p.y - yMin) / yRange) * (h - pad * 2);
+    if (i === 0) waveCtx.moveTo(x, y);
+    else waveCtx.lineTo(x, y);
+  });
+  waveCtx.strokeStyle = 'rgba(74,184,200,.7)';
+  waveCtx.lineWidth = 1.8;
+  waveCtx.lineJoin = 'round';
+  waveCtx.stroke();
+
+  // Fill under waveform
+  waveCtx.lineTo(((signalBuf[signalBuf.length-1].t - tMin) / tRange) * w, h);
+  waveCtx.lineTo(0, h);
+  waveCtx.closePath();
+  waveCtx.fillStyle = 'rgba(74,184,200,.07)';
+  waveCtx.fill();
+
+  // Peak markers
+  const visiblePeaks = peakTimes.filter(t => t >= tMin);
+  waveCtx.fillStyle = 'rgba(74,184,200,.85)';
+  visiblePeaks.forEach(pt => {
+    const x = ((pt - tMin) / tRange) * w;
+    waveCtx.beginPath();
+    waveCtx.arc(x, pad, 3, 0, Math.PI * 2);
+    waveCtx.fill();
+  });
+
+  // BPM label on waveform
+  if (smoothBPM > 0) {
+    waveCtx.font = '400 11px JetBrains Mono, monospace';
+    waveCtx.fillStyle = 'rgba(139,170,187,.7)';
+    waveCtx.textAlign = 'right';
+    waveCtx.fillText(`${Math.round(smoothBPM)} bpm`, w - 10, h - 8);
+  }
+}
+
+// ── BREATH RING — signature element ──
+// A glowing oval that expands on inhale and contracts on exhale,
+// centred on the camera stage. Erratic when breathing is irregular.
+
+let prevRingPhase = 0;
+let ringAge = 0;
+let orbitTrail = []; // trail of ring sizes for glow history
+
+function drawBreathRing() {
+  const w = ringCanvas.width, h = ringCanvas.height;
+  ringCtx.clearRect(0, 0, w, h);
+
+  if (!running || smoothBPM === 0) return;
+
+  const cx = w / 2, cy = h / 2;
+  ringAge++;
+
+  // Breathing pulse: sinusoidal based on ring phase
+  const breathCurve = 0.5 + 0.5 * Math.sin(ringPhase * Math.PI * 2 - Math.PI / 2);
+  const baseR = Math.min(w, h) * 0.28;
+  const expand = ringAmplitude * Math.min(w, h) * 0.09;
+  const r = baseR + expand * breathCurve;
+
+  orbitTrail.push(r);
+  if (orbitTrail.length > 40) orbitTrail.shift();
+
+  // Colour: cyan (normal) → gold (caution) → rose (alert)
+  const isAlert = anomalyCount > 0 && (Date.now() - lastAnomalyTime < 8000);
+  const isCaution = smoothBPM < 12 || smoothBPM > 20;
+  const ringColor  = isAlert ? '#c2606a' : isCaution ? '#d4a842' : '#4ab8c8';
+  const glowColor  = isAlert ? 'rgba(194,96,106,0.35)' : isCaution ? 'rgba(212,168,66,0.2)' : 'rgba(74,184,200,0.2)';
+
+  // Glow (multiple rings)
+  for (let g = 3; g >= 1; g--) {
+    ringCtx.beginPath();
+    ringCtx.arc(cx, cy, r + g * 10, 0, Math.PI * 2);
+    ringCtx.strokeStyle = glowColor;
+    ringCtx.lineWidth = 3;
+    ringCtx.stroke();
+  }
+
+  // Main ring
+  ringCtx.beginPath();
+  ringCtx.arc(cx, cy, r, 0, Math.PI * 2);
+  ringCtx.strokeStyle = ringColor;
+  ringCtx.lineWidth = 2.5;
+  ringCtx.stroke();
+
+  // Phase dot — orbits the ring, indicates breath position
+  const dotAngle = ringPhase * Math.PI * 2 - Math.PI / 2;
+  const dx = cx + r * Math.cos(dotAngle);
+  const dy = cy + r * Math.sin(dotAngle);
+  ringCtx.beginPath();
+  ringCtx.arc(dx, dy, 5, 0, Math.PI * 2);
+  ringCtx.fillStyle = ringColor;
+  ringCtx.shadowColor = ringColor;
+  ringCtx.shadowBlur = 14;
+  ringCtx.fill();
+  ringCtx.shadowBlur = 0;
+
+  // Centre label: inhale / exhale
+  const phase01 = (ringPhase % 1 + 1) % 1;
+  const phaseLabel = phase01 < 0.5 ? 'inhale' : 'exhale';
+  ringCtx.font = '300 12px JetBrains Mono, monospace';
+  ringCtx.fillStyle = 'rgba(232,244,248,0.45)';
+  ringCtx.textAlign = 'center';
+  ringCtx.textBaseline = 'middle';
+  ringCtx.fillText(phaseLabel, cx, cy);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  CONTROLS
+// ══════════════════════════════════════════════════════════════
+
+function togglePause() {
+  paused = !paused;
+  document.getElementById('pauseBtn').textContent = paused ? 'Resume' : 'Pause';
+  setLivePill(paused ? '' : 'active', paused ? 'paused' : 'monitoring');
+}
+window.togglePause = togglePause;
+
+function clearLog() {
+  sessionLog = [];
+  anomalyCount = 0;
+  document.getElementById('statAnom').textContent = '0';
+  const container = document.getElementById('sessionLog');
+  container.innerHTML = `<div class="log-eyebrow">Session events</div>
+    <div class="log-empty" id="logEmpty">No events logged yet. Normal breathing produces no log entries.</div>`;
+}
+window.clearLog = clearLog;
+
+function exportSession() {
+  if (!sessionLog.length) { alert('No anomaly events to export.'); return; }
+  const rows = ['time,bpm,pattern'];
+  sessionLog.forEach(e => {
+    rows.push(`${new Date(e.t).toISOString()},${e.bpm},${e.label}`);
+  });
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `breath-session-${Date.now()}.csv`;
+  a.click();
+}
+window.exportSession = exportSession;
+
+// Initial ring canvas draw (placeholder)
+(function initRing() {
+  const w = ringCanvas.width || 400, h = ringCanvas.height || 300;
+  ringCtx.beginPath();
+  ringCtx.arc(w/2, h/2, Math.min(w,h)*0.28, 0, Math.PI*2);
+  ringCtx.strokeStyle = 'rgba(74,184,200,0.12)';
+  ringCtx.lineWidth = 2;
+  ringCtx.stroke();
+})();
+</script>
+</body>
+</html>
